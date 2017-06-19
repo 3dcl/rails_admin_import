@@ -17,7 +17,7 @@ module RailsAdminImport
         init_results
 
 
-        if records.count > RailsAdminImport.config.line_item_limit
+        if !RailsAdminImport.config.line_item_limit.nil? && records.count > RailsAdminImport.config.line_item_limit
           return results = {
             success: [],
             error: [I18n.t('admin.import.import_error.line_item_limit', limit: RailsAdminImport.config.line_item_limit)]
