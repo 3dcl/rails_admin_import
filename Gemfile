@@ -1,27 +1,27 @@
 source "http://rubygems.org"
 
 # CI dependencies
-gem 'rails', '~> 4.2.0'
+gem 'rails', '~> 5.1'
 gem 'rails_admin'
 
 case ENV['CI_ORM']
 when 'mongoid'
-  gem 'mongoid', '~> 4.0.0'
+  gem 'mongoid', '~> 6.0'
 else
   case ENV['CI_DB_ADAPTER']
   when 'mysql2'
-    gem 'mysql2', '~> 0.3.14'
+    gem 'mysql2', '~> 0.4.4'
   when 'postgresql'
     gem 'pg', '>= 0.14'
   else
-    gem 'sqlite3', '>= 1.3'
+    gem 'sqlite3', '~> 1.3.13'
   end
 end
 
 group :test do
   gem 'rspec', '~> 3.0'
   gem 'rspec-rails', '~> 3.0'
-  gem 'factory_girl_rails'
+  gem 'factory_bot_rails', '~> 4.8'
   gem 'database_cleaner'
 end
 

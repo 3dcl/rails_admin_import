@@ -1,9 +1,11 @@
 require "csv"
+require "charlock_holmes"
 
 module RailsAdminImport
   module Formats
     class CSVImporter < FileImporter
       Formats.register(:csv, self)
+      Formats.register(:CSV, self)
 
       autoload :CharDet, "rchardet"
 
@@ -16,7 +18,8 @@ module RailsAdminImport
       # A method that yields a hash of attributes for each record to import
       def each_record
         CSV.foreach(filename, csv_options) do |row|
-          yield convert_to_attributes(row)
+          attr = convert_to_attributes(row)
+          yield attr unless attr.all? { |field, value| value.blank? }
         end
       end
 
@@ -51,9 +54,9 @@ module RailsAdminImport
       end
 
       def detect_encoding
-        charset = CharDet.detect File.read(filename)
-        if charset["confidence"] > 0.6
-          from_encoding = charset["encoding"]
+        charset = CharlockHolmes::EncodingDetector.detect File.read(filename)
+        if charset[:confidence] > 0.6
+          from_encoding = charset[:encoding]
           from_encoding = "UTF-8" if from_encoding == "ascii"
         end
         from_encoding

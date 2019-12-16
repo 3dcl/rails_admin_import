@@ -17,6 +17,7 @@ module RailsAdminImport
         init_results
 
 
+
         if !RailsAdminImport.config.line_item_limit.nil? && records.count > RailsAdminImport.config.line_item_limit
           return results = {
             success: [],
@@ -24,13 +25,19 @@ module RailsAdminImport
           }
         end
 
+        perform_global_callback(:before_import)
+
         with_transaction do
           records.each do |record|
-            import_record(record)
+            catch :skip do
+              import_record(record)
+            end
           end
 
           rollback_if_error
         end
+
+        perform_global_callback(:after_import)
       rescue Exception => e
         report_general_error("#{e} (#{e.backtrace.first})")
       end
@@ -65,19 +72,24 @@ module RailsAdminImport
     end
 
     def import_record(record)
-      if update_lookup && !record.has_key?(update_lookup)
+      perform_model_callback(import_model.model, :before_import_find, record)
+
+      if update_lookup && !(update_lookup - record.keys).empty?
         raise UpdateLookupError, I18n.t("admin.import.missing_update_lookup")
       end
 
       object = find_or_create_object(record, update_lookup)
+      return if object.nil?
       action = object.new_record? ? :create : :update
 
       begin
+        perform_model_callback(object, :before_import_associations, record)
         import_single_association_data(object, record)
         import_many_association_data(object, record)
       rescue AssociationNotFound => e
         error = I18n.t("admin.import.association_not_found", :error => e.to_s)
         report_error(object, action, error)
+        perform_model_callback(object, :after_import_association_error, record)
         return
       end
 
@@ -88,12 +100,13 @@ module RailsAdminImport
         perform_model_callback(object, :after_import_save, record)
       else
         report_error(object, action, object.errors.full_messages.join(", "))
+        perform_model_callback(object, :after_import_error, record)
       end
     end
 
     def update_lookup
       @update_lookup ||= if params[:update_if_exists] == "1"
-                           params[:update_lookup].to_sym
+                           params[:update_lookup].map(&:to_sym)
                          end
     end
 
@@ -169,6 +182,11 @@ module RailsAdminImport
       end
     end
 
+    def perform_global_callback(method_name)
+      object = import_model.model
+      object.send(method_name) if object.respond_to?(method_name)
+    end
+
     def find_or_create_object(record, update)
       field_names = import_model.model_fields.map(&:name)
       new_attrs = record.select do |field_name, value|
@@ -177,13 +195,19 @@ module RailsAdminImport
 
       model = import_model.model
       object = if update.present?
-                 model.where(update => record[update]).first
+                 query = update.each_with_object({}) do
+                   |field, query| query[field] = record[field]
+                 end
+                 model.where(query).first
                end
 
       if object.nil?
-        object = model.new(new_attrs)
+        object = model.new
+        perform_model_callback(object, :before_import_attributes, record)
+        object.attributes = new_attrs
       else
-        object.attributes = new_attrs.except(update.to_sym)
+        perform_model_callback(object, :before_import_attributes, record)
+        object.attributes = new_attrs.except(update.map(&:to_sym))
       end
       object
     end

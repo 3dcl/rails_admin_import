@@ -4,6 +4,7 @@ module RailsAdminImport
   module Formats
     class XLSXImporter < FileImporter
       Formats.register(:xlsx, self)
+      Formats.register(:XLSX, self)
 
       autoload :SimpleXlsxReader, "simple_xlsx_reader"
 
@@ -18,7 +19,8 @@ module RailsAdminImport
         sheet = doc.sheets.first
         @headers = convert_headers(sheet.headers)
         sheet.data.each do |row|
-          yield convert_to_attributes(row)
+          attr = convert_to_attributes(row)
+          yield attr unless attr.all? { |field, value| value.blank? }
         end
       end
 
@@ -33,7 +35,7 @@ module RailsAdminImport
       def convert_to_attributes(row)
         row_with_headers = @headers.zip(row)
         row_with_headers.each_with_object({}) do |(field, value), record|
-          break if field.nil?
+          next if field.nil?
           field = field.to_sym
           if import_model.has_multiple_values?(field)
             field = import_model.pluralize_field(field)

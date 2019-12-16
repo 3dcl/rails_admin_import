@@ -4,37 +4,86 @@ describe "CSV import", :type => :request do
   describe "for a simple model" do
     it "imports the data" do
       file = fixture_file_upload("balls.csv", "text/plain")
-      post "/admin/ball/import", file: file
+      post "/admin/ball/import", params: { file: file }
+      expect(response.body).not_to include "failed"
+      expect(Ball.count).to eq 2
+      expect(Ball.first.color).to eq "red"
+    end
+
+    it "skips blank rows while importing the data" do
+      file = fixture_file_upload("balls_blank_row.csv", "text/plain")
+      post "/admin/ball/import", params: { file: file }
       expect(response.body).not_to include "failed"
       expect(Ball.count).to eq 2
       expect(Ball.first.color).to eq "red"
     end
 
     describe "update_if_exists" do
-      it "updates the records if they exist" do
-        person = FactoryGirl.create(:person_one)
+      context "single update lookup key" do
+        it "updates the records if they exist" do
+          person = FactoryBot.create(:person_one)
 
-        file = fixture_file_upload("person_update.csv", "text/plain")
-        post "/admin/person/import", file: file,
-          "update_if_exists": "1",
-          "update_lookup": "email",
-          "associations[employee]": "name"
+          file = fixture_file_upload("person_update.csv", "text/plain")
+          post "/admin/person/import", params: {
+            file: file,
+            "update_if_exists": "1",
+            "update_lookup": ["email"],
+            "associations[employee]": "name"
+          }
 
-        expect(response.body).not_to include "failed"
-        expect(Person.first.full_name).to match "John Snow"
-        expect(Person.count).to eq 1
+          expect(response.body).not_to include "failed"
+          expect(Person.first.full_name).to match "John Snow"
+          expect(Person.count).to eq 1
+        end
+
+        it "creates the records if they don't exist" do
+          file = fixture_file_upload("person_update.csv", "text/plain")
+          post "/admin/person/import", params: {
+            file: file,
+            "update_if_exists": "1",
+            "update_lookup": ["email"],
+            "associations[employee]": "name"
+          }
+
+          expect(response.body).not_to include "failed"
+          expect(Person.first.full_name).to match "John Snow"
+          expect(Person.count).to eq 1
+        end
       end
+      context "multiple update lookup key" do
+        it "updates the records if they exist" do
+          jane_doe = FactoryBot.create(:person_jane_doe)
+          jane_smith = FactoryBot.create(:person_jane_smith)
 
-      it "creates the records if they don't exist" do
-        file = fixture_file_upload("person_update.csv", "text/plain")
-        post "/admin/person/import", file: file,
-          "update_if_exists": "1",
-          "update_lookup": "email",
-          "associations[employee]": "name"
+          file = fixture_file_upload("person_jane_update.csv", "text/plain")
+          post "/admin/person/import", params: {
+            file: file,
+            "update_if_exists": "1",
+            "update_lookup": ["first_name", "last_name"],
+            "associations[employee]": "name"
+          }
 
-        expect(response.body).not_to include "failed"
-        expect(Person.first.full_name).to match "John Snow"
-        expect(Person.count).to eq 1
+          expect(response.body).not_to include "failed"
+          expect(Person.first.email).to match "jane.doe@gmail.com"
+          expect(Person.second.email).to match "jane.smith@example.com"
+          expect(Person.count).to eq 2
+        end
+
+        it "creates the records if they don't exist" do
+          jane_smith = FactoryBot.create(:person_jane_smith)
+          file = fixture_file_upload("person_jane_update.csv", "text/plain")
+          post "/admin/person/import", params: {
+            file: file,
+            "update_if_exists": "1",
+            "update_lookup": ["first_name", "last_name"],
+            "associations[employee]": "name"
+          }
+
+          expect(response.body).not_to include "failed"
+          expect(Person.first.email).to match "jane.smith@example.com"
+          expect(Person.second.email).to match "jane.doe@gmail.com"
+          expect(Person.count).to eq 2
+        end
       end
     end
 
@@ -46,8 +95,10 @@ describe "CSV import", :type => :request do
       end
 
       file = fixture_file_upload("person_update.csv", "text/plain")
-      post "/admin/person/import", file: file,
+      post "/admin/person/import", params: {
+        file: file,
         "associations[employee]": "name"
+      }
 
       expect(response.body).to include "John Snow"
     end
@@ -55,14 +106,16 @@ describe "CSV import", :type => :request do
 
   describe "for a model with belongs_to" do
     it "updates the record based on a association" do
-      parent = FactoryGirl.create(:parent_one, id: "1")
-      child = FactoryGirl.create(:child_one, parent: parent)
+      parent = FactoryBot.create(:parent_one, id: "1")
+      child = FactoryBot.create(:child_one, parent: parent)
 
       file = fixture_file_upload("child_update.csv", "text/plain")
-      post "/admin/child/import", file: file,
+      post "/admin/child/import", params: {
+        file: file,
         "update_if_exists": "1",
-        "update_lookup": "parent_id",
+        "update_lookup": ["parent_id"],
         "associations[parent]": "name"
+      }
 
       expect(response.body).not_to include "failed"
       expect(Child.first.name).to match "Tall One"
@@ -77,8 +130,10 @@ describe "CSV import", :type => :request do
         children = create_children
 
         file = fixture_file_upload("parents.csv", "text/plain")
-        post "/admin/parent/import", file: file,
+        post "/admin/parent/import", params: {
+          file: file,
           "associations[children]": 'name'
+        }
         expect(response.body).not_to include "failed"
         expect(Parent.count).to eq 2
 
@@ -95,7 +150,10 @@ describe "CSV import", :type => :request do
         # Don't add children from support/associations.rb to the database
 
         file = fixture_file_upload("parents.csv", "text/plain")
-        post "/admin/parent/import", file: file, "associations[children]": 'name'
+        post "/admin/parent/import", params: {
+          file: file,
+          "associations[children]": "name"
+        }
         expect(response.body).to include "failed"
         expect(Parent.count).to eq 0
 
@@ -112,8 +170,11 @@ describe "CSV import", :type => :request do
         people = create_people
 
         file = fixture_file_upload("company.csv", "text/plain")
-        post "/admin/company/import", file: file,
-          "associations[employees]": 'email'
+        post "/admin/company/import", params: {
+          file: file,
+          "associations[employees]": "email"
+        }
+
         expect(response.body).not_to include "failed"
         expect(Company.count).to eq 2
 
@@ -132,7 +193,10 @@ describe "CSV import", :type => :request do
       authors = create_blog_authors
 
       file = fixture_file_upload("blog/posts.csv", "text/plain")
-      post "/admin/blog~post/import", file: file, "associations[authors]": 'name'
+      post "/admin/blog~post/import", params: {
+        file: file,
+        "associations[authors]": "name"
+      }
       expect(response.body).not_to include "failed"
       expect(Blog::Post.count).to eq 2
 
@@ -144,7 +208,7 @@ describe "CSV import", :type => :request do
   describe "different character encoding" do
     it "detects encoding through auto-detection" do
       file = fixture_file_upload("shift_jis.csv", "text/plain")
-      post "/admin/ball/import", file: file
+      post "/admin/ball/import", params: { file: file }
 
       expect(response.body).not_to include "failed"
       expected = 
@@ -156,7 +220,10 @@ describe "CSV import", :type => :request do
 
     it "decodes encoding when specified" do
       file = fixture_file_upload("latin1.csv", "text/plain")
-      post "/admin/ball/import", file: file, encoding: 'ISO-8859-1'
+      post "/admin/ball/import", params: {
+        file: file,
+        encoding: "ISO-8859-1"
+      }
 
       expect(response.body).not_to include "failed"
       expected = %w(
@@ -172,7 +239,7 @@ describe "CSV import", :type => :request do
   describe "for a file with empty columns" do
     it "ignores empty columns" do
       file = fixture_file_upload("balls_empty.csv", "text/plain")
-      post "/admin/ball/import", file: file
+      post "/admin/ball/import", params: { file: file }
       expect(response.body).not_to include "failed"
       expect(Ball.count).to eq 2
       expect(Ball.first.color).to eq "red"
